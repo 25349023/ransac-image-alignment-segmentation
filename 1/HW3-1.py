@@ -52,6 +52,7 @@ def solve_homography(pts1, pts2):
 def ransac_matching(points, rounds=1000, agree_threshold=10):
     max_agrees = -1
     best_agree_idx = None
+    best_H = None
     for _ in range(rounds):
         rand_quad = random_select_quad(points)
         H = solve_homography(*rand_quad)
@@ -64,8 +65,9 @@ def ransac_matching(points, rounds=1000, agree_threshold=10):
         if agrees.sum() > max_agrees:
             max_agrees = agrees.sum()
             best_agree_idx = agrees
+            best_H = H
 
-    return best_agree_idx
+    return best_agree_idx, best_H
 
 
 def random_select_quad(coords):
@@ -92,6 +94,14 @@ def pick_agreed_keypoints(feat, matches, idx_name, agreements):
     return agreed_kps
 
 
+def deviation_vectors(left_pts, right_pts, H, right_image):
+    warpped_left = warp_by(left_pts, H).astype(int)
+    right_pts = right_pts.astype(int)
+    for left, right in zip(warpped_left, right_pts):
+        right_image = cv2.line(right_image, left[:2], right[:2], (0, 230, 255), 1)
+    return right_image
+
+
 if __name__ == '__main__':
     output_dir = pathlib.Path('output')
     if not output_dir.exists():
@@ -100,6 +110,7 @@ if __name__ == '__main__':
     books = [cv2.imread('1-book1.jpg'), cv2.imread('1-book2.jpg'), cv2.imread('1-book3.jpg')]
     thresholds = [0.8, 0.8, 0.7]
     image = cv2.imread('1-image.jpg')
+    image_dev = image.copy()
     image_feat = sift_detect(image)
 
     for i, (book, thres) in enumerate(zip(books, thresholds)):
@@ -117,7 +128,7 @@ if __name__ == '__main__':
         flattened_matches = list(chain.from_iterable(matches_idx))
         pts = points_from_matches(flattened_matches, book_feat, image_feat)
 
-        best_agrees = ransac_matching(pts, agree_threshold=3)
+        best_agrees, H = ransac_matching(pts, agree_threshold=3)
 
         matches_idx = [[cv2.DMatch(i, i, 0)] for i in range(best_agrees.sum())]
         matched_book_kp = pick_agreed_keypoints(book_feat, flattened_matches, 'queryIdx', best_agrees)
@@ -128,3 +139,9 @@ if __name__ == '__main__':
             flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
             matchColor=(0, 255, 0))
         cv2.imwrite(str(output_dir / f'1b_book{i + 1}.jpg'), matches_img)
+
+        book_pts, image_pts = separate_left_right_points(pts)
+        image_dev = deviation_vectors(book_pts[best_agrees], image_pts[best_agrees], H, image_dev)
+
+    cv2.imwrite(str(output_dir / f'1b_deviation_vectors.jpg'), image_dev)
+
