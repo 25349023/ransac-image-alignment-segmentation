@@ -16,13 +16,14 @@ def sift_detect(image):
     return SiftFeature(kp, descriptor)
 
 
-def sift_matching(left_desc, right_desc, threshold=200):
+def sift_matching(left_desc, right_desc, threshold=0.7):
     matches = []
     for q, desc in enumerate(left_desc):
         distance = np.linalg.norm(desc - right_desc, axis=-1)
-        min_idx = np.argmin(distance)
-        if distance[min_idx] < threshold:
-            matches.append([cv2.DMatch(q, min_idx, distance[min_idx])])
+        sorted_idx = np.argsort(distance)
+        t0, t1 = sorted_idx[0:2]
+        if distance[t0] / distance[t1] < threshold:
+            matches.append([cv2.DMatch(q, t0, distance[t0])])
 
     return matches
 
@@ -48,7 +49,7 @@ def solve_homography(pts1, pts2):
     return x
 
 
-def ransac_matching(points, rounds=1000, agree_threshold=100):
+def ransac_matching(points, rounds=1000, agree_threshold=10):
     max_agrees = -1
     best_agree_idx = None
     for _ in range(rounds):
@@ -97,7 +98,7 @@ if __name__ == '__main__':
         output_dir.mkdir(parents=True, exist_ok=True)
 
     books = [cv2.imread('1-book1.jpg'), cv2.imread('1-book2.jpg'), cv2.imread('1-book3.jpg')]
-    thresholds = [283, 200, 301]
+    thresholds = [0.8, 0.8, 0.7]
     image = cv2.imread('1-image.jpg')
     image_feat = sift_detect(image)
 
@@ -116,7 +117,7 @@ if __name__ == '__main__':
         flattened_matches = list(chain.from_iterable(matches_idx))
         pts = points_from_matches(flattened_matches, book_feat, image_feat)
 
-        best_agrees = ransac_matching(pts, agree_threshold=50)
+        best_agrees = ransac_matching(pts, agree_threshold=3)
 
         matches_idx = [[cv2.DMatch(i, i, 0)] for i in range(best_agrees.sum())]
         matched_book_kp = pick_agreed_keypoints(book_feat, flattened_matches, 'queryIdx', best_agrees)
