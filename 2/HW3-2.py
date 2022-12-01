@@ -1,7 +1,8 @@
+import itertools
+import pathlib
 import time
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 
@@ -16,19 +17,20 @@ class KMeans:
         self.cluster_centers = None
 
     @staticmethod
-    def norm(xs, centers):
-        return np.linalg.norm(xs[:, np.newaxis] - centers[np.newaxis], axis=-1)
+    def norm_square(xs, centers):
+        # xs.shape: (n, ch), centers.shape: (k, ch)
+        return np.sum(np.square(xs[:, np.newaxis] - centers[np.newaxis]), axis=-1)
 
     def _init_cluster_centers(self, xs):
         cc = np.array([])
-        if self.init == 'random':
+        if self.init == 'k-means':
             idx = np.random.choice(range(xs.shape[0]), self.k_clusters, replace=False)
             cc = xs[idx]
         elif self.init == 'k-means++':
             init_idx = np.random.choice(range(xs.shape[0]))
             cc = np.array([init_idx], dtype=int)
             while len(cc) < self.k_clusters:
-                squared_distances = self.norm(xs, xs[cc]).min(axis=-1) ** 2
+                squared_distances = self.norm_square(xs, xs[cc]).min(axis=-1)
                 total_dis = squared_distances.sum()
                 prob = squared_distances / total_dis
                 cc = np.append(cc, np.random.choice(range(xs.shape[0]), p=prob))
@@ -37,12 +39,10 @@ class KMeans:
 
     def predict(self, xs, cluster_centers=None):
         cluster_centers = self.cluster_centers if cluster_centers is None else cluster_centers
-
-        # xs.shape: (n, ch), cluster_centers.shape: (k, ch)
-        return self.norm(xs, cluster_centers).argmin(axis=-1)
+        return self.norm_square(xs, cluster_centers).argmin(axis=-1)
 
     def score(self, cluster_centers, xs):
-        distance = self.norm(xs, cluster_centers).min(axis=-1).sum()
+        distance = self.norm_square(xs, cluster_centers).min(axis=-1).sum()
         return distance
 
     def _update_center(self, cluster_centers, xs):
@@ -62,8 +62,9 @@ class KMeans:
 
     def _fit_single_run(self, xs, rnd=0):
         cluster_centers = self._init_cluster_centers(xs)
-        for _ in tqdm.trange(self.max_iter, desc=f'Round {rnd + 1}: '):
+        for _ in tqdm.trange(self.max_iter, desc=f'Round {rnd + 1}: ', leave=False):
             new_cc = self._update_center(cluster_centers, xs)
+            new_cc[np.isnan(new_cc)] = cluster_centers[np.isnan(new_cc)]
             change = np.linalg.norm(new_cc - cluster_centers, axis=-1)
             converge = (change < self.epsilon).all()
             if converge:
@@ -73,16 +74,24 @@ class KMeans:
 
 
 if __name__ == '__main__':
-    image = cv2.imread('2-image.jpg')
+    output_dir = pathlib.Path('output')
 
-    flatten_img = image.reshape((-1, 3))
+    for name in 'image', 'masterpiece':
+        if not (dir := output_dir / name).exists():
+            dir.mkdir(parents=True, exist_ok=True)
 
-    start = time.time()
-    kmeans = KMeans(10, n_guess=50, max_iter=100, epsilon=1)
-    kmeans.fit(flatten_img)
-    print(f'{time.time() - start} secs')
+        image = cv2.imread(f'2-{name}.jpg')
+        flatten_img = image.reshape((-1, 3))
 
-    # quantized_image = kmeans.cluster_centers[kmeans.predict(flatten_img)]
-    # quantized_image = quantized_image.reshape(image.shape).astype(np.uint8)
-    #
-    # plt.imshow(quantized_image[..., ::-1])
+        for init, k in itertools.product(('k-means', 'k-means++'), (4, 7, 10)):
+            print(f'Running {init}, k = {k}')
+
+            start = time.time()
+            kmeans = KMeans(k, init=init, n_guess=50, max_iter=100, epsilon=1)
+            kmeans.fit(flatten_img)
+            print(f'{time.time() - start} secs')
+
+            quantized_image = kmeans.cluster_centers[kmeans.predict(flatten_img, kmeans.cluster_centers)]
+            quantized_image = quantized_image.reshape(image.shape).astype(np.uint8)
+
+            cv2.imwrite(str(dir / f'{name}_{init}_{k}.jpg'), quantized_image)
