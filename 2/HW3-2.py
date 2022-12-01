@@ -73,6 +73,37 @@ class KMeans:
         return cluster_centers
 
 
+class MeanShift:
+    def __init__(self, bandwidth, max_iter=100, epsilon=1e-2):
+        self.bandwidth = bandwidth
+        self.max_iter = max_iter
+        self.epsilon = epsilon
+        self.xs = None
+        self.clusters = None
+
+    def fit(self, xs):
+        self.xs = xs
+        self.clusters = []
+        for x in xs:
+            self.clusters.append(self._fit_one_seed(x))
+
+    def _fit_one_seed(self, x):
+        kernel_mean = x
+        for _ in range(self.max_iter):
+            distances = np.linalg.norm(kernel_mean[np.newaxis] - self.xs)
+            in_kernel = distances < self.bandwidth
+            mean_shift_vector = self.xs[in_kernel].mean(axis=0)
+            new_kernel = kernel_mean + mean_shift_vector
+            if np.linalg.norm(new_kernel - kernel_mean) < self.epsilon:
+                break
+            kernel_mean = new_kernel
+        return kernel_mean
+
+    def remove_duplicate(self):
+        # [TODO] remove the duplicated kernels that distance < bandwidth && has fewer points
+        pass
+
+
 if __name__ == '__main__':
     output_dir = pathlib.Path('output')
 
