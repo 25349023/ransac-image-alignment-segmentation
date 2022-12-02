@@ -49,7 +49,7 @@ def solve_homography(pts1, pts2):
     return x
 
 
-def ransac_matching(points, rounds=1000, agree_threshold=10):
+def ransac_matching(points, rounds=1000, agree_threshold=10.0):
     max_agrees = -1
     best_agree_idx = None
     best_H = None
@@ -128,14 +128,19 @@ if __name__ == '__main__':
         flattened_matches = list(chain.from_iterable(matches_idx))
         pts = points_from_matches(flattened_matches, book_feat, image_feat)
 
-        best_agrees, H = ransac_matching(pts, agree_threshold=3)
+        best_agrees, H = ransac_matching(pts, agree_threshold=2)
 
         matches_idx = [[cv2.DMatch(i, i, 0)] for i in range(best_agrees.sum())]
         matched_book_kp = pick_agreed_keypoints(book_feat, flattened_matches, 'queryIdx', best_agrees)
         matched_image_kp = pick_agreed_keypoints(image_feat, flattened_matches, 'trainIdx', best_agrees)
 
+        h, w, _ = book.shape
+        quad = np.array([[0, 0, 1], [w, 0, 1], [w, h, 1], [0, h, 1]])
+        quad = warp_by(quad, H).astype(np.int32)[..., :-1]
+        image_detect = cv2.polylines(image.copy(), np.array([quad]), True, (0, 255, 0), 5)
+
         matches_img = cv2.drawMatchesKnn(
-            book, matched_book_kp, image, matched_image_kp, matches_idx, None,
+            book, matched_book_kp, image_detect, matched_image_kp, matches_idx, None,
             flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
             matchColor=(0, 255, 0))
         cv2.imwrite(str(output_dir / f'1b_book{i + 1}.jpg'), matches_img)
@@ -144,4 +149,3 @@ if __name__ == '__main__':
         image_dev = deviation_vectors(book_pts[best_agrees], image_pts[best_agrees], H, image_dev)
 
     cv2.imwrite(str(output_dir / f'1b_deviation_vectors.jpg'), image_dev)
-
