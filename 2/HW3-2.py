@@ -79,29 +79,43 @@ class MeanShift:
         self.max_iter = max_iter
         self.epsilon = epsilon
         self.xs = None
-        self.clusters = None
+        self.cluster_centers = None
 
     def fit(self, xs):
         self.xs = xs
-        self.clusters = []
-        for x in xs:
-            self.clusters.append(self._fit_one_seed(x))
+        cluster_centers = []
+        for x in tqdm.tqdm(xs, leave=False):
+            cluster_centers.append(self._fit_one_seed(x))
+        self.cluster_centers = cluster_centers
+        self.remove_duplicate()
+        return self
 
     def _fit_one_seed(self, x):
         kernel_mean = x
         for _ in range(self.max_iter):
-            distances = np.linalg.norm(kernel_mean[np.newaxis] - self.xs)
-            in_kernel = distances < self.bandwidth
-            mean_shift_vector = self.xs[in_kernel].mean(axis=0)
-            new_kernel = kernel_mean + mean_shift_vector
+            in_kernel = self._nearby(kernel_mean, self.xs)
+            new_kernel = self.xs[in_kernel].mean(axis=0)
             if np.linalg.norm(new_kernel - kernel_mean) < self.epsilon:
                 break
             kernel_mean = new_kernel
         return kernel_mean
 
     def remove_duplicate(self):
-        # [TODO] remove the duplicated kernels that distance < bandwidth && has fewer points
-        pass
+        unique_centers = np.unique(np.array(self.cluster_centers, dtype=int), axis=0)
+        points_in_kernels = np.array([self._nearby(center, self.xs).sum() for center in unique_centers])
+        sorted_centers = unique_centers[points_in_kernels.argsort()[::-1]]
+
+        mark = np.ones(sorted_centers.shape[0], dtype=bool)
+        for i, center in enumerate(sorted_centers):
+            if mark[i]:
+                nearby = self._nearby(center, sorted_centers)
+                mark[nearby] = False
+                mark[i] = True
+        self.cluster_centers = sorted_centers[mark]
+
+    def _nearby(self, center, points):
+        distances = np.linalg.norm(center[np.newaxis] - points, axis=-1)
+        return distances < self.bandwidth
 
 
 if __name__ == '__main__':
@@ -114,6 +128,7 @@ if __name__ == '__main__':
         image = cv2.imread(f'2-{name}.jpg')
         flatten_img = image.reshape((-1, 3))
 
+        # 2A, 2B
         for init, k in itertools.product(('k-means', 'k-means++'), (4, 7, 10)):
             print(f'Running {init}, k = {k}')
 
