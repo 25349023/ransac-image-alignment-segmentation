@@ -3,8 +3,10 @@ import pathlib
 import time
 
 import cv2
+import matplotlib
 import numpy as np
 import tqdm
+from matplotlib import pyplot as plt
 
 
 class KMeans:
@@ -81,6 +83,11 @@ class MeanShift:
         self.xs = None
         self.cluster_centers = None
 
+    def predict(self, xs):
+        # xs.shape: (n, ch), cluster_centers.shape: (k, ch)
+        return np.linalg.norm(xs[:, np.newaxis] - self.cluster_centers[np.newaxis],
+                              axis=-1).argmin(axis=-1)
+
     def fit(self, xs):
         self.xs = xs
         cluster_centers = []
@@ -118,7 +125,24 @@ class MeanShift:
         return distances < self.bandwidth
 
 
+def plot_pixel_dist(img, alpha=0.3, color='k'):
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(projection='3d')
+
+    ax.scatter(img[:, 0], img[:, 1], img[:, 2], alpha=alpha, c=color)
+    fig.canvas.draw()
+
+    return get_figure_rgb_data(fig)
+
+
+def get_figure_rgb_data(fig):
+    data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    return data
+
+
 if __name__ == '__main__':
+    matplotlib.use('agg')
     output_dir = pathlib.Path('output')
 
     for name in 'image', 'masterpiece':
@@ -141,3 +165,32 @@ if __name__ == '__main__':
             quantized_image = quantized_image.reshape(image.shape).astype(np.uint8)
 
             cv2.imwrite(str(dir / f'{name}_{init}_{k}.jpg'), quantized_image)
+
+        resized_image = cv2.resize(image, (0, 0), None, 0.3, 0.3)
+        flatten_resized_img = resized_image.reshape((-1, 3))
+
+        # 2E
+        mean_shifts = []
+        segmentations = []
+        for bandwidth in 15, 30, 45:
+            print(f'Running mean shift, bandwidth = {bandwidth}')
+
+            mean_shift = MeanShift(bandwidth, max_iter=10, epsilon=1)
+            mean_shifts.append(mean_shift.fit(flatten_resized_img))
+
+            segmentation = mean_shift.cluster_centers[mean_shift.predict(flatten_img)]
+            segmentation = segmentation.reshape(image.shape).astype(np.uint8)
+            segmentations.append(segmentation)
+
+            cv2.imwrite(str(dir / f'2e_{name}_meanshift_{bandwidth}.jpg'), segmentation)
+
+        # 2C
+        seg_flat_img = mean_shifts[1].cluster_centers[
+                                 mean_shifts[1].predict(flatten_resized_img)
+                             ].astype(float) / 255
+
+        cv2.imwrite(str(dir / f'2c_{name}_meanshift_clustering_result.jpg'), segmentations[1])
+        orig_dist = plot_pixel_dist(flatten_resized_img)
+        cv2.imwrite(str(dir / f'2c_{name}_original_pixel_distribution.jpg'), orig_dist)
+        seg_dist = plot_pixel_dist(flatten_resized_img, alpha=0.6, color=seg_flat_img)
+        cv2.imwrite(str(dir / f'2c_{name}_segmentation_pixel_distribution.jpg'), seg_dist)
