@@ -141,6 +141,16 @@ def get_figure_rgb_data(fig):
     return data
 
 
+def combine_with_spatial_info(img):
+    h, w, _ = img.shape
+    pixels = np.array(list(itertools.product(range(h), range(w))), dtype=float)
+    # normalize pixel coordinates to match the dist. of rgb space
+    pixels[..., 0] /= h
+    pixels[..., 1] /= w
+    with_spatial = np.concatenate([img.reshape((-1, 3)), pixels * 255], axis=1)
+    return with_spatial
+
+
 if __name__ == '__main__':
     matplotlib.use('agg')
     output_dir = pathlib.Path('output')
@@ -175,10 +185,10 @@ if __name__ == '__main__':
         for bandwidth in 15, 30, 45:
             print(f'Running mean shift, bandwidth = {bandwidth}')
 
-            mean_shift = MeanShift(bandwidth, max_iter=10, epsilon=1)
-            mean_shifts.append(mean_shift.fit(flatten_resized_img))
+            mean_shift_spatial = MeanShift(bandwidth, max_iter=10, epsilon=1)
+            mean_shifts.append(mean_shift_spatial.fit(flatten_resized_img))
 
-            segmentation = mean_shift.cluster_centers[mean_shift.predict(flatten_img)]
+            segmentation = mean_shift_spatial.cluster_centers[mean_shift_spatial.predict(flatten_img)]
             segmentation = segmentation.reshape(image.shape).astype(np.uint8)
             segmentations.append(segmentation)
 
@@ -186,11 +196,23 @@ if __name__ == '__main__':
 
         # 2C
         seg_flat_img = mean_shifts[1].cluster_centers[
-                                 mean_shifts[1].predict(flatten_resized_img)
-                             ].astype(float) / 255
+                           mean_shifts[1].predict(flatten_resized_img)
+                       ].astype(float) / 255
 
         cv2.imwrite(str(dir / f'2c_{name}_meanshift_clustering_result.jpg'), segmentations[1])
         orig_dist = plot_pixel_dist(flatten_resized_img)
         cv2.imwrite(str(dir / f'2c_{name}_original_pixel_distribution.jpg'), orig_dist)
         seg_dist = plot_pixel_dist(flatten_resized_img, alpha=0.6, color=seg_flat_img)
         cv2.imwrite(str(dir / f'2c_{name}_segmentation_pixel_distribution.jpg'), seg_dist)
+
+        # 2D
+        print(f'Running mean shift with spatial info')
+        resized_with_spatial = combine_with_spatial_info(resized_image)
+        img_with_spatial = combine_with_spatial_info(image)
+
+        mean_shift_spatial = MeanShift(40, max_iter=10, epsilon=3)
+        mean_shift_spatial.fit(resized_with_spatial)
+
+        segmentation = mean_shift_spatial.cluster_centers[mean_shift_spatial.predict(img_with_spatial)]
+        segmentation = segmentation[..., :3].reshape(image.shape).astype(np.uint8)
+        cv2.imwrite(str(dir / f'2d_{name}_meanshift_with_spatial_info.jpg'), segmentation)
